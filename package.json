@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "@tsconfig/recommended": "^1.0.2",
+    "@types/eventsource": "^1.1.11",
+    "@types/node": "^18.11.18",
+    "eventsource": "^2.0.2",
+    "pocketbase": "^0.10.1",
+    "python-shell": "^3.0.1"
+  },
+  "type": "module"
+}
