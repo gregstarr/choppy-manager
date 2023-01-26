@@ -8,9 +8,6 @@ globalThis.EventSource = eventsource;
 const pb = new PocketBase('https://choppy.pro:443');
 
 const app = new App(pb);
-await app.authorize();
-console.log("ASDASD")
-app.subscribe();
-
-// console.log("register exit")
-// process.on("exit", app.cleanup);
+await app.run();
+console.log("register exit")
+process.on("exit", app.cleanup);
