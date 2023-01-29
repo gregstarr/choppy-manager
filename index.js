@@ -1,6 +1,6 @@
-import PocketBase  from "pocketbase";
-import App from "./app.js";
-import eventsource from 'eventsource';
+import PocketBase  from "npm:pocketbase";
+import App from "./app.ts";
+import eventsource from 'npm:eventsource';
 
 globalThis.EventSource = eventsource;
 
