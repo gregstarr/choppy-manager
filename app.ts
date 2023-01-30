@@ -5,7 +5,23 @@ import { expandGlob } from "https://deno.land/std@0.174.0/fs/mod.ts";
 import { Tar } from "https://deno.land/std@0.174.0/archive/tar.ts";
 import { copy } from "https://deno.land/std@0.174.0/streams/copy.ts";
 import { Buffer } from "https://deno.land/std@0.174.0/io/buffer.ts";
-import { basename } from "https://deno.land/std@0.174.0/path/posix.ts";
+import { basename, join } from "https://deno.land/std@0.174.0/path/posix.ts";
+import { assert } from "https://deno.land/std@0.174.0/testing/asserts.ts";
+
+
+const choppy_cmd = Deno.env.get("CHOPPY_PATH");
+assert(choppy_cmd)
+const manager_dir = Deno.env.get("MANAGER_DIR");
+assert(manager_dir)
+const username = Deno.env.get("POCKETBASE_USERNAME");
+assert(username)
+const password = Deno.env.get("POCKETBASE_PASSWORD");
+assert(password)
+const blender_path = Deno.env.get("BLENDER_PATH");
+assert(blender_path)
+let path = Deno.env.get("PATH");
+path = `${blender_path}:${path}`
+Deno.env.set("PATH", path)
 
 
 async function delay(ms: number) {
@@ -21,7 +37,6 @@ const connector_prog_re = new RegExp(/\$CONNECTOR_PROGRESS (.+)/g)
 
 class JobHandler {
     pb: PocketBase
-    cmd = "/home/greg/code/choppy/.venv/bin/choppy"
     job_dir = ""
     log_handle?: Deno.FsFile
     tree_prog = 0
@@ -62,7 +77,7 @@ class JobHandler {
     async send_file() {
         if (this.job_id == null) throw "no job??"
         const tar = new Tar()
-        for await (const file of expandGlob(`${this.job_dir}/chop*.stl`)) {
+        for await (const file of expandGlob(join(this.job_dir, "chop*.stl"))) {
             console.log({"files": file})
             const stl = await Deno.readFile(file.path)
             await tar.append(basename(file.path), {
@@ -70,13 +85,13 @@ class JobHandler {
                 contentSize: stl.byteLength
             });
         }
-        const tfile = `${this.job_dir}/output.tar`
+        const tfile = join(this.job_dir, "output.tar")
         const writer = await Deno.open(tfile, { write: true, create: true });
         await copy(tar.getReader(), writer);
         writer.close();
         const formData = new FormData();
         await Deno.readFile(tfile).then( (data) => {
-            formData.append('output', new Blob([data]), "output.tar");
+            formData.append("output", new Blob([data]), "output.tar");
         })
         return formData
     }
@@ -89,7 +104,7 @@ class JobHandler {
             form_data.append("status", "finished")
         } else {
             form_data = new FormData();
-            form_data.append("status", "error")
+            form_data.append("status", "failed")
         }
         
         const record = await this.pb.collection("jobs").update(this.job_id, form_data);
@@ -100,11 +115,10 @@ class JobHandler {
     async new_job(data: RecordSubscription<Record>) {
         // get file info
         const file_url = this.pb.getFileUrl(data.record, data.record.input);
-        const local_dir = `work/${data.record.id}`
-        this.job_dir = local_dir;
+        this.job_dir = join(manager_dir as string, "work", data.record.id);
         this.job_id = data.record.id
-        await Deno.mkdir(local_dir)
-        const local_path = `${local_dir}/input.stl`;
+        await Deno.mkdir(this.job_dir)
+        const local_path = join(this.job_dir, "input.stl");
         console.log({data: data.record, file: file_url, local_path: local_path});
 
         // get printer
@@ -121,7 +135,7 @@ class JobHandler {
         const [, printer_data] = await Promise.all([writefile_p, printer_data_p])
         console.log({"printer_data": printer_data})
         const {size_x, size_y, size_z} = printer_data;
-        const cmd = [this.cmd, local_path, size_x, size_y, size_z, "-o", local_dir];
+        const cmd = [choppy_cmd, local_path, size_x, size_y, size_z, "-o", this.job_dir];
         this.proc = Deno.run({"cmd": cmd, "stdout": "null"});
 
         // update status
@@ -135,7 +149,7 @@ class JobHandler {
             if (event.paths.map(x => basename(x)).includes("info.log")) break
         }
         // open stream
-        this.log_handle = await Deno.open(`${this.job_dir}/info.log`)
+        this.log_handle = await Deno.open(join(this.job_dir, "info.log"))
     }
 
     async run(){
@@ -147,18 +161,11 @@ class JobHandler {
 
 class App {
     pb: PocketBase;
-    username: string;
-    password: string;
     jobs: Array<JobHandler> = []
 
     constructor (pbase: PocketBase) {
         this.pb = pbase;
-        const username = Deno.env.get("POCKETBASE_USERNAME");
-        const password = Deno.env.get("POCKETBASE_PASSWORD");
-        if (username === undefined || password === undefined) throw "username and password required"
         console.log({username, password})
-        this.username = username
-        this.password = password
     }
 
     async run() {
@@ -182,7 +189,7 @@ class App {
     }
 
     async authorize() {
-        const user_data = await this.pb.collection("users").authWithPassword(this.username,this.password);
+        const user_data = await this.pb.collection("users").authWithPassword(username as string, password as string);
         console.log({ "user_data": user_data });
         return user_data
     }
