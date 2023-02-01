@@ -109,8 +109,8 @@ class JobHandler {
             form_data = new FormData();
             form_data.append("status", "failed")
         }
-        
-        const record = await this.pb.collection("jobs").update(this.job_id, form_data);
+
+        const record = await this.pb.collection("jobs").update(this.job_id, form_data, {"$autoCancel": false});
         console.log({"record": record, "code": status.code})
         this.finished = true;
     }
