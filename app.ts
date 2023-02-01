@@ -78,6 +78,9 @@ class JobHandler {
         if (this.job_id == null) throw "no job??"
         const tar = new Tar()
         for await (const file of expandGlob(join(this.job_dir, "chop*.stl"))) {
+            if( file.name.includes("tree") ){
+                continue;
+            }
             console.log({"files": file})
             const stl = await Deno.readFile(file.path)
             await tar.append(basename(file.path), {
@@ -154,7 +157,16 @@ class JobHandler {
 
     async run(){
         if (this.proc === undefined) throw "no process yet"
-        await this.proc.status().then((status) => {this.finish_job(status)})
+        await this.proc.status()
+            .then(async (status) => {
+                await this.finish_job(status)
+            }).catch(async (err) => {
+                console.log(err)
+                if( this.job_id ){
+                    await this.pb.collection("jobs").update(this.job_id, {"status": "failed"});
+                    await this.pb.collection("jobs").update(this.job_id, {"status": "failed"});
+                }
+            })
     }
 }
 
