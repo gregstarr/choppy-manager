@@ -1,7 +1,6 @@
 import PocketBase from 'npm:pocketbase';
 import { Record, RecordSubscription } from 'npm:pocketbase';
 import "https://deno.land/std@0.174.0/dotenv/load.ts";
-import { expandGlob } from "https://deno.land/std@0.174.0/fs/mod.ts";
 import { Tar } from "https://deno.land/std@0.174.0/archive/tar.ts";
 import { copy } from "https://deno.land/std@0.174.0/streams/copy.ts";
 import { Buffer } from "https://deno.land/std@0.174.0/io/buffer.ts";
@@ -33,6 +32,7 @@ async function delay(ms: number) {
 
 const tree_prog_re = new RegExp(/\$TREE_PROGRESS (.+)/g)
 const connector_prog_re = new RegExp(/\$CONNECTOR_PROGRESS (.+)/g)
+const file_re = new RegExp(/\$OUTPUT_FILE (.+)/g)
 
 
 class JobHandler {
@@ -75,19 +75,25 @@ class JobHandler {
     }
 
     async send_file() {
+        if (this.log_handle == null) throw "log file not opened"
         if (this.job_id == null) throw "no job??"
+        const buffer = new Uint8Array(5000);
+        await this.log_handle.seek(-5000, Deno.SeekMode.End)
+        const bytes_read = await this.log_handle.read(buffer)
+        if (bytes_read == 0) throw "wtf"
+
+        const log_str = new TextDecoder().decode(buffer).trimEnd();
         const tar = new Tar()
-        for await (const file of expandGlob(join(this.job_dir, "chop*.stl"))) {
-            if( file.name.includes("tree") ){
-                continue;
-            }
+        for (const match of log_str.matchAll(file_re)){
+            const file = match[1];
             console.log({"files": file})
-            const stl = await Deno.readFile(file.path)
-            await tar.append(basename(file.path), {
+            const stl = await Deno.readFile(file)
+            await tar.append(basename(file), {
                 reader: new Buffer(stl),
                 contentSize: stl.byteLength
             });
         }
+
         const tfile = join(this.job_dir, "output.tar")
         const writer = await Deno.open(tfile, { write: true, create: true });
         await copy(tar.getReader(), writer);
@@ -109,6 +115,8 @@ class JobHandler {
             form_data = new FormData();
             form_data.append("status", "failed")
         }
+        form_data.append("progress_tree", "100")
+        form_data.append("progress_connector", "100")
 
         const record = await this.pb.collection("jobs").update(this.job_id, form_data, {"$autoCancel": false});
         console.log({"record": record, "code": status.code})
@@ -120,7 +128,7 @@ class JobHandler {
         const file_url = this.pb.getFileUrl(data.record, data.record.input);
         this.job_dir = join(manager_dir as string, "work", data.record.id);
         this.job_id = data.record.id
-        await Deno.mkdir(this.job_dir)
+        await Deno.mkdir(this.job_dir, {recursive: true})
         const local_path = join(this.job_dir, "input.stl");
         console.log({data: data.record, file: file_url, local_path: local_path});
 
