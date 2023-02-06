@@ -4,7 +4,7 @@ import "https://deno.land/std@0.174.0/dotenv/load.ts";
 import { Tar } from "https://deno.land/std@0.174.0/archive/tar.ts";
 import { copy } from "https://deno.land/std@0.174.0/streams/copy.ts";
 import { Buffer } from "https://deno.land/std@0.174.0/io/buffer.ts";
-import { basename, join } from "https://deno.land/std@0.174.0/path/posix.ts";
+import { basename, join, extname } from "https://deno.land/std@0.174.0/path/posix.ts";
 import { assert } from "https://deno.land/std@0.174.0/testing/asserts.ts";
 
 
@@ -33,6 +33,7 @@ async function delay(ms: number) {
 const tree_prog_re = new RegExp(/\$TREE_PROGRESS (.+)/g)
 const connector_prog_re = new RegExp(/\$CONNECTOR_PROGRESS (.+)/g)
 const file_re = new RegExp(/\$OUTPUT_FILE (.+)/g)
+const nc_re = new RegExp(/\$N_CONNECTORS (.+)/g)
 
 
 class JobHandler {
@@ -102,6 +103,12 @@ class JobHandler {
         await Deno.readFile(tfile).then( (data) => {
             formData.append("output", new Blob([data]), "output.tar");
         })
+
+        for (const match of log_str.matchAll(nc_re)){
+            formData.append("n_connectors", match[1]);
+            break;
+        }
+
         return formData
     }
 
@@ -126,10 +133,11 @@ class JobHandler {
     async new_job(data: RecordSubscription<Record>) {
         // get file info
         const file_url = this.pb.getFileUrl(data.record, data.record.input);
+        const file_ext = extname(data.record.input);
         this.job_dir = join(manager_dir as string, "work", data.record.id);
         this.job_id = data.record.id
         await Deno.mkdir(this.job_dir, {recursive: true})
-        const local_path = join(this.job_dir, "input.stl");
+        const local_path = join(this.job_dir, `input${file_ext}`);
         console.log({data: data.record, file: file_url, local_path: local_path});
 
         // get printer
