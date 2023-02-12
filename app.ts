@@ -44,6 +44,8 @@ class JobHandler {
     conn_prog = 0
     job_id: string | null = null
     finished = false
+    success = false;
+    test = true;
     proc?: Deno.Process
 
     constructor (pbase: PocketBase){
@@ -59,13 +61,14 @@ class JobHandler {
         if (bytes_read == 0) return
 
         const log_str = new TextDecoder().decode(buffer).trimEnd();
+        console.log(log_str);
+        
         for (const match of log_str.matchAll(tree_prog_re)){
             this.tree_prog = Number(match[1]) * 100
         }
         for (const match of log_str.matchAll(connector_prog_re)){
             this.conn_prog = Number(match[1]) * 100
         }
-        // example update data
         const data = {
             "progress_tree": this.tree_prog,
             "progress_connector": this.conn_prog,
@@ -128,9 +131,15 @@ class JobHandler {
         const record = await this.pb.collection("jobs").update(this.job_id, form_data, {"$autoCancel": false});
         console.log({"record": record, "code": status.code})
         this.finished = true;
+        this.success = status.code === 0;
     }
 
     async new_job(data: RecordSubscription<Record>) {
+        // determine user type (test or not)
+        const userrecord = await this.pb.collection('users').getOne(data.record.user);
+        this.test = userrecord.role == "test"
+        console.log({"user": userrecord, "test": this.test})
+
         // get file info
         const file_url = this.pb.getFileUrl(data.record, data.record.input);
         const file_ext = extname(data.record.input);
@@ -190,6 +199,8 @@ class JobHandler {
 class App {
     pb: PocketBase;
     jobs: Array<JobHandler> = []
+    n_total = 0;
+    n_success = 0;
 
     constructor (pbase: PocketBase) {
         this.pb = pbase;
@@ -206,6 +217,14 @@ class App {
                 const job = this.jobs[i]
                 if (job.finished) { 
                     this.jobs.splice(i, 1);
+                    if( !job.test ) {
+                        this.n_total++;
+                        this.n_success = job.success? this.n_success + 1: this.n_success;
+                        await this.pb.collection('success_rate').update('hnjqu2jrruix7iy', {
+                            "n_success": this.n_success,
+                            "n_total": this.n_total
+                        });
+                    }
                 } else {
                     console.log("update")
                     proms.push(job.update_status().catch((e) => {console.log(e)}))
